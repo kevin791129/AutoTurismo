@@ -48,6 +48,8 @@
 #include "GameFramework/Volume.h"
 #include "Camera/CameraComponent.h"
 #include "FoliageType_InstancedStaticMesh.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
 
 #include "Model.h"
 #include "Engine/Brush.h"
@@ -73,6 +75,10 @@ UHoudiniInputObject::UHoudiniInputObject(const FObjectInitializer& ObjectInitial
 	, bNeedsToTriggerUpdate(false)
 	, bTransformChanged(false)
 	, bImportAsReference(false)
+	, bImportAsReferenceRotScaleEnabled(false)
+	, bImportAsReferenceBboxEnabled(false)
+	, bImportAsReferenceMaterialEnabled(false)
+	, MaterialReferences()
 	, bCanDeleteHoudiniNodes(true)
 {
 	Guid = FGuid::NewGuid();
@@ -236,6 +242,15 @@ UHoudiniInputBrush::UHoudiniInputBrush()
 
 }
 
+//
+UHoudiniInputBlueprint::UHoudiniInputBlueprint(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+	, LastUpdateNumComponentsAdded(0)
+	, LastUpdateNumComponentsRemoved(0)
+{
+
+}
+
 //-----------------------------------------------------------------------------------------------------------------------------
 // Accessors
 //-----------------------------------------------------------------------------------------------------------------------------
@@ -256,21 +271,17 @@ UHoudiniInputObject::MarkChanged(const bool& bInChanged)
 		FHoudiniEngineRuntimeUtils::MarkInputNodeAsDirty(InputNodeHandle.GetIdentifier());
 }
 
+const TArray<FString>&
+UHoudiniInputObject::GetMaterialReferences()
+{
+	UpdateMaterialReferences();
+	return MaterialReferences;
+}
+
 UStaticMesh*
 UHoudiniInputStaticMesh::GetStaticMesh() const
 {
 	return Cast<UStaticMesh>(InputObject.LoadSynchronous());
-}
-
-UBlueprint* 
-UHoudiniInputStaticMesh::GetBlueprint() const 
-{
-	return Cast<UBlueprint>(InputObject.LoadSynchronous());
-}
-
-bool UHoudiniInputStaticMesh::bIsBlueprint() const 
-{
-	return (InputObject.IsValid() && InputObject.Get()->IsA<UBlueprint>());
 }
 
 USkeletalMesh*
@@ -421,6 +432,13 @@ UHoudiniInputBrush::GetBrush() const
 }
 
 
+UBlueprint*
+UHoudiniInputBlueprint::GetBlueprint() const
+{
+	return Cast<UBlueprint>(InputObject.LoadSynchronous());
+}
+
+
 //-----------------------------------------------------------------------------------------------------------------------------
 // CREATE METHODS
 //-----------------------------------------------------------------------------------------------------------------------------
@@ -517,6 +535,10 @@ UHoudiniInputObject::CreateTypedInputObject(UObject * InObject, UObject* InOuter
 
 		case EHoudiniInputObjectType::SkeletalMeshComponent:
 			HoudiniInputObject = UHoudiniInputSkeletalMeshComponent::Create(InObject, InOuter, InName);
+			break;
+
+		case EHoudiniInputObjectType::Blueprint:
+			HoudiniInputObject = UHoudiniInputBlueprint::Create(InObject, InOuter, InName);
 			break;
 
 		case EHoudiniInputObjectType::Invalid:
@@ -706,6 +728,23 @@ UHoudiniInputActor::Create(UObject * InObject, UObject* InOuter, const FString& 
 	return HoudiniInputObject;
 }
 
+UHoudiniInputObject*
+UHoudiniInputBlueprint::Create(UObject* InObject, UObject* InOuter, const FString& InName)
+{
+	FString InputObjectNameStr = "HoudiniInputObject_BP_" + InName;
+	FName InputObjectName = MakeUniqueObjectName(InOuter, UHoudiniInputBlueprint::StaticClass(), *InputObjectNameStr);
+
+	// We need to create a new object
+	UHoudiniInputBlueprint* HoudiniInputObject = NewObject<UHoudiniInputBlueprint>(
+		InOuter, UHoudiniInputBlueprint::StaticClass(), InputObjectName, RF_Public | RF_Transactional);
+
+	HoudiniInputObject->Type = EHoudiniInputObjectType::Blueprint;
+	HoudiniInputObject->Update(InObject);
+	HoudiniInputObject->bHasChanged = true;
+
+	return HoudiniInputObject;
+}
+
 UHoudiniInputObject *
 UHoudiniInputStaticMesh::Create(UObject * InObject, UObject* InOuter, const FString& InName)
 {
@@ -721,99 +760,6 @@ UHoudiniInputStaticMesh::Create(UObject * InObject, UObject* InOuter, const FStr
 	HoudiniInputObject->bHasChanged = true;
 
 	return HoudiniInputObject;
-}
-
-// void UHoudiniInputStaticMesh::DuplicateAndCopyState(UObject* DestOuter, UHoudiniInputStaticMesh*& OutNewInput)
-// {
-// 	UHoudiniInputStaticMesh* NewInput = Cast<UHoudiniInputStaticMesh>(StaticDuplicateObject(this, DestOuter));
-// 	OutNewInput = NewInput;
-// 	OutNewInput->CopyStateFrom(this, false);
-// }
-
-void
-UHoudiniInputStaticMesh::CopyStateFrom(UHoudiniInputObject* InInput, bool bCopyAllProperties)
-{
-	UHoudiniInputStaticMesh* StaticMeshInput = Cast<UHoudiniInputStaticMesh>(InInput); 
-	check(InInput);
-
-	const TArray<UHoudiniInputObject*> PrevInputs = BlueprintStaticMeshes;
-	
-	Super::CopyStateFrom(StaticMeshInput, bCopyAllProperties);
-
-	const int32 NumInputs = StaticMeshInput->BlueprintStaticMeshes.Num();
-	BlueprintStaticMeshes = PrevInputs;
-	TArray<UHoudiniInputObject*> StaleInputs(BlueprintStaticMeshes);
-
-	BlueprintStaticMeshes.SetNum(NumInputs);
-
-	for (int i = 0; i < NumInputs; ++i)
-	{
-		UHoudiniInputObject* FromInput = StaticMeshInput->BlueprintStaticMeshes[i];
-		UHoudiniInputObject* ToInput = BlueprintStaticMeshes[i];
-
-		if (!FromInput)
-		{
-			BlueprintStaticMeshes[i] = nullptr;
-			continue;
-		}
-
-		if (ToInput)
-		{
-			// Check whether the ToInput can be reused
-			bool bIsValid = true;
-			bIsValid = bIsValid && ToInput->Matches(*FromInput);
-			bIsValid = bIsValid && ToInput->GetOuter() == this;
-			if (!bIsValid)
-			{
-				ToInput = nullptr;
-			}
-		}
-
-		if (ToInput)
-		{
-			// We have a reusable input
-			ToInput->CopyStateFrom(FromInput, true);
-		}
-		else
-		{
-			// We need to create a new input
-			ToInput = Cast<UHoudiniInputStaticMesh>(FromInput->DuplicateAndCopyState(this));
-		}
-
-		BlueprintStaticMeshes[i] = ToInput;
-	}
-
-	for(UHoudiniInputObject* const StaleInput : StaleInputs)
-	{
-		if (!StaleInput)
-			continue;
-		StaleInput->InvalidateData();
-	}
-}
-
-void
-UHoudiniInputStaticMesh::SetCanDeleteHoudiniNodes(bool bInCanDeleteNodes)
-{
-	Super::SetCanDeleteHoudiniNodes(bInCanDeleteNodes);
-	for(UHoudiniInputObject* const Input : BlueprintStaticMeshes)
-	{
-		if (!Input)
-			continue;
-		Input->SetCanDeleteHoudiniNodes(bInCanDeleteNodes);
-	}
-}
-
-void
-UHoudiniInputStaticMesh::InvalidateData()
-{
-	for(UHoudiniInputObject* const Input : BlueprintStaticMeshes)
-	{
-		if (!Input)
-			continue;
-		Input->InvalidateData();
-	}
-
-	Super::InvalidateData();
 }
 
 
@@ -991,6 +937,126 @@ UHoudiniInputObject::Update(UObject * InObject)
 	InputObject = InObject;
 }
 
+FString UHoudiniInputObject::FormatAssetReference(FString AssetReference) {
+	// Replace the first space with a single quote
+	for (int32 Itr = 0; Itr < AssetReference.Len(); Itr++)
+	{
+		if (AssetReference[Itr] == ' ')
+		{
+			AssetReference[Itr] = '\'';
+			break;
+		}
+	}
+
+	// Attach another single quote to the end
+	AssetReference += FString("'");
+	return AssetReference;
+}
+
+void
+UHoudiniInputObject::UpdateMaterialReferences()
+{
+	UObject* InObject = GetObject();
+	if (!InObject)
+		return;
+
+	MaterialReferences.Empty();
+
+	EHoudiniInputObjectType InputObjectType = GetInputObjectTypeFromObject(InObject);
+	switch (InputObjectType)
+	{
+		case EHoudiniInputObjectType::StaticMesh:
+		{
+			const UStaticMesh* SM = Cast<UStaticMesh>(InObject);
+			ensure(SM);
+
+			const TArray<FStaticMaterial> Materials = SM->GetStaticMaterials();
+			for (const FStaticMaterial& Material : Materials)
+			{
+				FString AssetReference = FormatAssetReference(Material.MaterialInterface->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+			break;
+		}
+
+		case EHoudiniInputObjectType::SkeletalMesh:
+		{
+			const USkeletalMesh* SK = Cast<USkeletalMesh>(InObject);
+			ensure(SK);
+
+			const TArray<FSkeletalMaterial> Materials = SK->GetMaterials();
+			for (const FSkeletalMaterial& Material : Materials)
+			{
+				FString AssetReference = FormatAssetReference(Material.MaterialInterface->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+			break;
+		}
+
+		case EHoudiniInputObjectType::StaticMeshComponent:
+		case EHoudiniInputObjectType::SkeletalMeshComponent:
+		case EHoudiniInputObjectType::GeometryCollectionComponent:
+		{
+			const UMeshComponent* MC = Cast<UMeshComponent>(InObject);
+			ensure(MC);
+
+			const TArray<UMaterialInterface*> Materials = MC->GetMaterials();
+			for (const UObject* Material : Materials)
+			{
+				FString AssetReference = FormatAssetReference(Material->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+
+			break;
+		}
+
+		case EHoudiniInputObjectType::FoliageType_InstancedStaticMesh:
+		{
+			const UFoliageType_InstancedStaticMesh* FT = Cast<UFoliageType_InstancedStaticMesh>(InObject);
+			ensure(FT);
+			const UStaticMesh* SM = FT->GetStaticMesh();
+
+			// Use the override materials from the Instancer if available, otherwise use the original materials from the instanced Static Mesh
+			const TArray<UMaterialInterface*> OverrideMaterials = FT->OverrideMaterials;
+			const TArray<FStaticMaterial> StaticMaterials = SM->GetStaticMaterials();
+			for (const UObject* Material : OverrideMaterials)
+			{
+				FString AssetReference = FormatAssetReference(Material->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+			
+			if (OverrideMaterials.Num() > 0)
+				break;
+
+			for (const FStaticMaterial& Material : StaticMaterials)
+			{
+				FString AssetReference = FormatAssetReference(Material.MaterialInterface->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+
+			break;
+		}
+
+		case EHoudiniInputObjectType::GeometryCollection:
+		{
+			UGeometryCollection* const GC = Cast<UGeometryCollection>(InObject);
+			ensure(GC);
+
+			const TArray<UMaterialInterface*> Materials = GC->Materials;
+
+			for (const UObject* Material : Materials)
+			{
+				FString AssetReference = FormatAssetReference(Material->GetFullName());
+				MaterialReferences.Add(AssetReference);
+			}
+			break;
+		}
+
+		default:
+			break;
+	}
+}
+
 void
 UHoudiniInputStaticMesh::Update(UObject * InObject)
 {
@@ -1166,23 +1232,11 @@ UHoudiniInputMeshComponent::Update(UObject * InObject)
 
 	UStaticMeshComponent* SMC = Cast<UStaticMeshComponent>(InObject);
 
-	// Empty the materials array here!, else it will continuously keep growing
-	// and bloat the size of the HAC for nothing
-	MeshComponentsMaterials.Empty();
-	
 	ensure(SMC);
 
-	if (SMC)
+	if (IsValid(SMC))
 	{
 		StaticMesh = TSoftObjectPtr<UStaticMesh>(SMC->GetStaticMesh());
-
-		TArray<UMaterialInterface*> Materials = SMC->GetMaterials();
-		for (auto CurrentMat : Materials)
-		{
-			// TODO: Update material ref here
-			FString MatRef;
-			MeshComponentsMaterials.Add(MatRef);
-		}
 	}
 }
 
@@ -1676,6 +1730,253 @@ bool UHoudiniInputLandscape::HasActorTransformChanged() const
 	return false;
 }
 
+bool
+UHoudiniInputBlueprint::GetChangedObjectsAndValidNodes(TArray<UHoudiniInputObject*>& OutChangedObjects, TArray<int32>& OutNodeIdsOfUnchangedValidObjects)
+{
+	if (Super::GetChangedObjectsAndValidNodes(OutChangedObjects, OutNodeIdsOfUnchangedValidObjects))
+		return true;
+
+	bool bAnyChanges = false;
+	// Check each of its child objects (components)
+	for (auto* const CurrentComp : GetComponents())
+	{
+		if (!IsValid(CurrentComp))
+			continue;
+
+		if (CurrentComp->GetChangedObjectsAndValidNodes(OutChangedObjects, OutNodeIdsOfUnchangedValidObjects))
+			bAnyChanges = true;
+	}
+
+	return bAnyChanges;
+}
+
+bool 
+UHoudiniInputBlueprint::HasComponentsTransformChanged() const
+{
+	// Search through all the child components to see if we have changed transforms in there.
+	for (auto CurrentComp : GetComponents())
+	{
+		if (CurrentComp->HasComponentTransformChanged())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool
+UHoudiniInputBlueprint::HasContentChanged() const
+{
+	return false;
+}
+
+void
+UHoudiniInputBlueprint::InvalidateData()
+{
+	// Call invalidate on input component objects
+	for (auto* const CurrentComp : GetComponents())
+	{
+		if (!IsValid(CurrentComp))
+			continue;
+
+		CurrentComp->InvalidateData();
+	}
+
+	Super::InvalidateData();
+}
+
+
+void
+UHoudiniInputBlueprint::Update(UObject* InObject)
+{
+	const bool bHasInputObjectChanged = InputObject != InObject;
+
+	Super::Update(InObject);
+
+	UBlueprint* BP = Cast<UBlueprint>(InObject);
+	ensure(BP);
+
+	if (BP)
+	{
+		// If we are updating (InObject == InputObject), then remove stale components and add new components,
+		// if InObject != InputObject, remove all components and rebuild
+		if (bHasInputObjectChanged)
+		{
+			// The actor's components that can be sent as inputs
+			LastUpdateNumComponentsRemoved = BPComponents.Num();
+
+			BPComponents.Empty();
+			BPSceneComponents.Empty();
+
+			TArray<USceneComponent*> AllComponents;
+			USimpleConstructionScript* SCS = BP->SimpleConstructionScript;
+			if (IsValid(SCS))
+			{
+				const TArray<USCS_Node*>& Nodes = SCS->GetAllNodes();
+				for (auto& CurNode : Nodes)
+				{
+					if (!IsValid(CurNode))
+						continue;
+
+					UActorComponent* CurComp = CurNode->ComponentTemplate;
+					if (!IsValid(CurComp))
+						continue;
+
+					USceneComponent* CurSceneComp = Cast<USceneComponent>(CurComp);
+					if (!IsValid(CurSceneComp))
+						continue;
+
+					AllComponents.Add(CurSceneComp);
+				}
+			}
+
+			BPComponents.Reserve(AllComponents.Num());
+			for (USceneComponent* SceneComponent : AllComponents)
+			{
+				if (!IsValid(SceneComponent))
+					continue;
+
+				UHoudiniInputObject* InputObj = UHoudiniInputObject::CreateTypedInputObject(
+					SceneComponent, GetOuter(), BP->GetName());
+				if (!InputObj)
+					continue;
+
+				UHoudiniInputSceneComponent* SceneInput = Cast<UHoudiniInputSceneComponent>(InputObj);
+				if (!SceneInput)
+					continue;
+
+				BPComponents.Add(SceneInput);
+				BPSceneComponents.Add(TSoftObjectPtr<UObject>(SceneComponent));
+			}
+			LastUpdateNumComponentsAdded = BPComponents.Num();
+		}
+		else
+		{
+			LastUpdateNumComponentsAdded = 0;
+			LastUpdateNumComponentsRemoved = 0;
+
+			// Look for any components to add or remove
+			TArray<USceneComponent*> NewComponents;
+			USimpleConstructionScript* SCS = BP->SimpleConstructionScript;
+			if (IsValid(SCS))
+			{
+				const TArray<USCS_Node*>& Nodes = SCS->GetAllNodes();
+				for (auto& CurNode : Nodes)
+				{
+					if (!IsValid(CurNode))
+						continue;
+
+					UActorComponent* CurComp = CurNode->ComponentTemplate;
+					if (!IsValid(CurComp))
+						continue;
+
+					USceneComponent* CurSceneComp = Cast<USceneComponent>(CurComp);
+					if (!IsValid(CurSceneComp))
+						continue;
+
+					if (!BPSceneComponents.Contains(CurSceneComp))
+					{
+						NewComponents.Add(CurSceneComp);
+					}
+				}
+			}
+
+			// Update the BP input components (from the same actor)
+			TArray<int32> ComponentIndicesToRemove;
+			const int32 NumActorComponents = BPComponents.Num();
+			for (int32 Index = 0; Index < NumActorComponents; ++Index)
+			{
+				UHoudiniInputSceneComponent* CurBPComp = BPComponents[Index];
+				if (!IsValid(CurBPComp))
+				{
+					ComponentIndicesToRemove.Add(Index);
+					continue;
+				}
+
+				// Does the component still exist on the BP?
+				UObject* const CompObj = CurBPComp->GetObject();
+				// Make sure the BP is still valid
+				if (!IsValid(CompObj))
+				{
+					// If it's not, mark it for deletion
+					if ((CurBPComp->InputNodeId > 0) || (CurBPComp->InputObjectNodeId > 0))
+					{
+						CurBPComp->InvalidateData();
+					}
+
+					ComponentIndicesToRemove.Add(Index);
+					continue;
+				}
+			}
+
+			// Remove the destroyed/invalid components
+			const int32 NumToRemove = ComponentIndicesToRemove.Num();
+			if (NumToRemove > 0)
+			{
+				for (int32 Index = NumToRemove - 1; Index >= 0; --Index)
+				{
+					const int32& IndexToRemove = ComponentIndicesToRemove[Index];
+
+					UHoudiniInputSceneComponent* const CurBPComp = BPComponents[IndexToRemove];
+					if (CurBPComp)
+						BPSceneComponents.Remove(CurBPComp->InputObject);
+
+					const bool bAllowShrink = false;
+					BPComponents.RemoveAtSwap(IndexToRemove, 1, bAllowShrink);
+
+					LastUpdateNumComponentsRemoved++;
+				}
+			}
+
+			if (NewComponents.Num() > 0)
+			{
+				for (USceneComponent* SceneComponent : NewComponents)
+				{
+					if (!IsValid(SceneComponent))
+						continue;
+
+					UHoudiniInputObject* InputObj = UHoudiniInputObject::CreateTypedInputObject(
+						SceneComponent, GetOuter(), BP->GetName());
+					if (!InputObj)
+						continue;
+
+					UHoudiniInputSceneComponent* SceneInput = Cast<UHoudiniInputSceneComponent>(InputObj);
+					if (!SceneInput)
+						continue;
+
+					BPComponents.Add(SceneInput);
+					BPSceneComponents.Add(SceneComponent);
+
+					LastUpdateNumComponentsAdded++;
+				}
+			}
+
+			if (LastUpdateNumComponentsAdded > 0 || LastUpdateNumComponentsRemoved > 0)
+			{
+				BPComponents.Shrink();
+			}
+		}
+	}
+	else
+	{
+		// If we don't have a valid BP or null, delete any input components we still have and mark as changed
+		if (BPComponents.Num() > 0)
+		{
+			LastUpdateNumComponentsAdded = 0;
+			LastUpdateNumComponentsRemoved = BPComponents.Num();
+			BPComponents.Empty();
+			BPSceneComponents.Empty();
+		}
+		else
+		{
+			LastUpdateNumComponentsAdded = 0;
+			LastUpdateNumComponentsRemoved = 0;
+		}
+	}
+}
+
+
 EHoudiniInputObjectType
 UHoudiniInputObject::GetInputObjectTypeFromObject(UObject* InObject)
 {
@@ -1743,7 +2044,7 @@ UHoudiniInputObject::GetInputObjectTypeFromObject(UObject* InObject)
 	}
 	else if (InObject->IsA(UBlueprint::StaticClass())) 
 	{
-		return EHoudiniInputObjectType::StaticMesh;
+		return EHoudiniInputObjectType::Blueprint;
 	}
 	else if (InObject->IsA(UFoliageType_InstancedStaticMesh::StaticClass())) 
 	{
@@ -2181,19 +2482,6 @@ UHoudiniInputFoliageType_InstancedStaticMesh::Create(UObject * InObject, UObject
 	HoudiniInputObject->bHasChanged = true;
 
 	return HoudiniInputObject;
-}
-
-void
-UHoudiniInputFoliageType_InstancedStaticMesh::CopyStateFrom(UHoudiniInputObject* InInput, bool bCopyAllProperties)
-{
-	UHoudiniInputFoliageType_InstancedStaticMesh* FoliageTypeSM = Cast<UHoudiniInputFoliageType_InstancedStaticMesh>(InInput); 
-	if (!IsValid(FoliageTypeSM))
-		return;
-
-	UHoudiniInputObject::CopyStateFrom(FoliageTypeSM, bCopyAllProperties);
-
-	// BlueprintStaticMeshes array is not used in UHoudiniInputFoliageType_InstancedStaticMesh
-	BlueprintStaticMeshes.Empty();
 }
 
 void

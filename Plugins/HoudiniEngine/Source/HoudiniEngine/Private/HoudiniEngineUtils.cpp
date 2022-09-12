@@ -98,6 +98,7 @@
 #if WITH_EDITOR
 	#include "EditorModeManager.h"
 	#include "EditorModes.h"
+	#include "EditorFramework/AssetImportData.h"
 #endif
 
 #define LOCTEXT_NAMESPACE HOUDINI_LOCTEXT_NAMESPACE
@@ -1293,7 +1294,16 @@ FHoudiniEngineUtils::LoadLibHAPI(FString & StoredLibHAPILocation)
 		}
 
 		// Create full path to libHAPI binary.
+#if PLATFORM_MAC
+		FString LibHAPIPath = FString::Printf(TEXT("%s/../Libraries/%s"), *HFSPath, *LibHAPIName);
+
+		// TODO: Handle developer environment paths on macOS.
+//		if (!FPaths::FileExists(LibHAPIPath))
+//		    LibHAPIPath = FString::Printf(TEXT("%s/dsolib/%s"), *HFSPath, *LibHAPIName);
+
+#else
 		FString LibHAPIPath = FString::Printf(TEXT("%s/%s"), *HFSPath, *LibHAPIName);
+#endif
 
 		if (FPaths::FileExists(LibHAPIPath))
 		{
@@ -1579,9 +1589,9 @@ FHoudiniEngineUtils::LoadHoudiniAsset(const UHoudiniAsset * HoudiniAsset, HAPI_A
 	if (HoudiniRuntimeSettings)
 		bMemoryCopyFirst = HoudiniRuntimeSettings->bPreferHdaMemoryCopyOverHdaSourceFile;
 
-	// Get the HDA's file path
+	// Get the HDA's file path, using the AssetImportData if we have it
+	FString AssetFileName = (HoudiniAsset->AssetImportData != nullptr) ? HoudiniAsset->AssetImportData->GetFirstFilename() : HoudiniAsset->GetAssetFileName();
 	// We need to convert relative file path to absolute
-	FString AssetFileName = HoudiniAsset->GetAssetFileName();
 	if (FPaths::IsRelative(AssetFileName))
 		AssetFileName = FPaths::ConvertRelativePathToFull(AssetFileName);
 
@@ -7776,6 +7786,30 @@ FHoudiniEngineUtils::SetObjectMergeXFormTypeToWorldOrigin(const HAPI_NodeId& InO
 	// Set the transform object to the world origin null from the manager
 	HOUDINI_CHECK_ERROR_RETURN(
 		FHoudiniApi::SetParmNodeValue(Session, InObjMergeNodeId, TCHAR_TO_UTF8(TEXT("xformpath")), WorldOriginNodeId), false);
+
+	return true;
+}
+
+bool
+FHoudiniEngineUtils::HapiConnectNodeInput(const int32& InNodeId, const int32& InputIndex, const int32& InNodeIdToConnect, const int32& OutputIndex, const int32& InXFormType)
+{
+	// Connect the node ids
+	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
+		FHoudiniEngine::Get().GetSession(), InNodeId, InputIndex, InNodeIdToConnect, OutputIndex), false);
+
+	// When connecting two nodes that are NOT in the same subnet,
+	// HAPI creates an object merge node for the connection
+	// See if we have specified a TransformType for that object merge!
+	if(InXFormType <= 0 || InXFormType <= 2)
+	{
+		HAPI_NodeId ObjMergeNodeId = -1;
+		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::QueryNodeInput(
+			FHoudiniEngine::Get().GetSession(), InNodeId, InputIndex, &ObjMergeNodeId), false);
+
+		// Set the transform value to "None"
+		HOUDINI_CHECK_ERROR_RETURN(
+			FHoudiniApi::SetParmIntValue(FHoudiniEngine::Get().GetSession(), ObjMergeNodeId, TCHAR_TO_UTF8(TEXT("xformtype")), 0, InXFormType), false);
+	}
 
 	return true;
 }

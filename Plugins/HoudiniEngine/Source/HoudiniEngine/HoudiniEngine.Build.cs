@@ -32,8 +32,8 @@
 
 /*
 
-    Houdini Version: 19.5.303
-    Houdini Engine Version: 5.0.0
+    Houdini Version: 19.5.368
+    Houdini Engine Version: 5.0.1
     Unreal Version: 5.0.0
 
 */
@@ -47,9 +47,9 @@ public class HoudiniEngine : ModuleRules
 {
     private string GetHFSPath()
     {
-        string HoudiniVersion = "19.5.303";
+        string HoudiniVersion = "19.5.368";
         bool bIsRelease = true;
-        string HFSPath = "C:/cygwin/home/prisms/builder-new/Nightly19.5.303CMake/dev/hfs";
+        string HFSPath = "C:/cygwin/home/prisms/builder-new/Nightly19.5CMake/dev/hfs";
         string RegistryPath = "HKEY_LOCAL_MACHINE\\SOFTWARE\\Side Effects Software";
         string Registry32Path = "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Side Effects Software";
         string log;
@@ -260,10 +260,7 @@ public class HoudiniEngine : ModuleRules
             Log.TraceInformationOnce( log ); 
 
             PlatformID buildPlatformId = Environment.OSVersion.Platform;
-            if (buildPlatformId == PlatformID.Win32NT)
-            {
-                PublicDefinitions.Add("HOUDINI_ENGINE_HFS_PATH_DEFINE=" + HFSPath);
-            }
+	    PublicDefinitions.Add("HOUDINI_ENGINE_HFS_PATH_DEFINE=" + HFSPath);
         }
 
         PublicIncludePaths.AddRange(

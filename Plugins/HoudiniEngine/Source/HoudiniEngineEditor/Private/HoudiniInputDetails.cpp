@@ -154,9 +154,12 @@ FHoudiniInputDetails::CreateWidget(
 		AddPackBeforeMergeCheckbox(VerticalBox, InInputs);
 	}
 
-	if (MainInputType == EHoudiniInputType::Geometry || MainInputType == EHoudiniInputType::World || MainInputType == EHoudiniInputType::Asset) 
+	if (MainInputType == EHoudiniInputType::Geometry
+		|| MainInputType == EHoudiniInputType::World
+		|| MainInputType == EHoudiniInputType::Asset
+		|| MainInputType == EHoudiniInputType::GeometryCollection) 
 	{
-		AddImportAsReferenceCheckbox(VerticalBox, InInputs);
+		AddImportAsReferenceCheckboxes(VerticalBox, InInputs);
 	}
 
 	if (MainInputType == EHoudiniInputType::Geometry || MainInputType == EHoudiniInputType::World)
@@ -592,7 +595,7 @@ FHoudiniInputDetails::AddPackBeforeMergeCheckbox(TSharedRef< SVerticalBox > Vert
 }
 
 void
-FHoudiniInputDetails::AddImportAsReferenceCheckbox(TSharedRef< SVerticalBox > VerticalBox, const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputs)
+FHoudiniInputDetails::AddImportAsReferenceCheckboxes(TSharedRef< SVerticalBox > VerticalBox, const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputs)
 {
 	if (InInputs.Num() <= 0)
 		return;
@@ -603,7 +606,7 @@ FHoudiniInputDetails::AddImportAsReferenceCheckbox(TSharedRef< SVerticalBox > Ve
 		return;
 
 	// Lambda returning a CheckState from the input's current PackBeforeMerge state
-	auto IsCheckedImportAsReference= [](const TWeakObjectPtr<UHoudiniInput>& InInput)
+	auto IsCheckedImportAsReference = [](const TWeakObjectPtr<UHoudiniInput>& InInput)
 	{
 		if (!IsValidWeakPointer(InInput))
 			return ECheckBoxState::Unchecked;
@@ -611,152 +614,320 @@ FHoudiniInputDetails::AddImportAsReferenceCheckbox(TSharedRef< SVerticalBox > Ve
 		return InInput->GetImportAsReference() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	};
 
-	// Lambda for changing PackBeforeMerge state
-	auto CheckStateChangedImportAsReference= [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
+	// Add input as reference checkbox
 	{
-		if (!IsValidWeakPointer(MainInput))
-			return;
-
-		const bool bNewState = (NewState == ECheckBoxState::Checked);
-
-		if (MainInput->GetImportAsReference() == bNewState)
-			return;
-
-		// Record a transaction for undo/redo
-		FScopedTransaction Transaction(
-			TEXT(HOUDINI_MODULE_EDITOR),
-			LOCTEXT("HoudiniInputChange", "Houdini Input: Changing Pack before merge"),
-			MainInput->GetOuter());
-
-		for (auto CurInput : InInputsToUpdate)
+		// Lambda for changing PackBeforeMerge state
+		auto CheckStateChangedImportAsReference = [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
 		{
-			if (!IsValidWeakPointer(CurInput))
-				continue;
+			if (!IsValidWeakPointer(MainInput))
+				return;
 
-			if (CurInput->GetImportAsReference() == bNewState)
-				continue;
+			const bool bNewState = (NewState == ECheckBoxState::Checked);
 
-			TArray<UHoudiniInputObject*> * InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
-			if (InputObjs) 
+			if (MainInput->GetImportAsReference() == bNewState)
+				return;
+
+			// Record a transaction for undo/redo
+			FScopedTransaction Transaction(
+				TEXT(HOUDINI_MODULE_EDITOR),
+				LOCTEXT("HoudiniInputChange", "Houdini Input: Changing Pack before merge"),
+				MainInput->GetOuter());
+
+			for (auto CurInput : InInputsToUpdate)
 			{
-				// Mark all its input objects as changed to trigger recook.
-				for (auto CurInputObj : *InputObjs) 
-				{
-					if (!IsValid(CurInputObj))
-						continue;
+				if (!IsValidWeakPointer(CurInput))
+					continue;
 
-					if (CurInputObj->GetImportAsReference() != bNewState)
+				if (CurInput->GetImportAsReference() == bNewState)
+					continue;
+
+				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				if (InputObjs)
+				{
+					// Mark all its input objects as changed to trigger recook.
+					for (auto CurInputObj : *InputObjs)
 					{
-						CurInputObj->SetImportAsReference(bNewState);
-						CurInputObj->MarkChanged(true);
+						if (!IsValid(CurInputObj))
+							continue;
+
+						if (CurInputObj->GetImportAsReference() != bNewState)
+						{
+							CurInputObj->SetImportAsReference(bNewState);
+							CurInputObj->MarkChanged(true);
+						}
 					}
 				}
+
+				CurInput->Modify();
+				CurInput->SetImportAsReference(bNewState);
 			}
+		};
 
-			CurInput->Modify();
-			CurInput->SetImportAsReference(bNewState);
-		}
-	};
-
-	TSharedPtr< SCheckBox > CheckBoxImportAsReference;
-	VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
-	[
-		SAssignNew(CheckBoxImportAsReference, SCheckBox)
-		.Content()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("ImportInputAsRefCheckbox", "Import input as references"))
-			.ToolTipText(LOCTEXT("ImportInputAsRefCheckboxTip", "Import input objects as references. (Geometry, World and Asset input types only)"))
-			.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
-		]
+		TSharedPtr< SCheckBox > CheckBoxImportAsReference;
+		VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
+			[
+				SAssignNew(CheckBoxImportAsReference, SCheckBox)
+				.Content()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("ImportInputAsRefCheckbox", "Import input as references"))
+				.ToolTipText(LOCTEXT("ImportInputAsRefCheckboxTip", "Import input objects as references. (Geometry, World and Asset input types only)"))
+				.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
+			]
 		.IsChecked_Lambda([=]()
-		{
-			return IsCheckedImportAsReference(MainInput);
-		})
-		.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
-		{
-			return CheckStateChangedImportAsReference(InInputs, NewState);
-		})
-	];
-
-	// Add Rot/Scale to input as reference
-	auto IsCheckedImportAsReferenceRotScale= [](const TWeakObjectPtr<UHoudiniInput>& InInput)
-	{
-		if (!IsValidWeakPointer(InInput))
-			return ECheckBoxState::Unchecked;
-
-		return InInput->GetImportAsReferenceRotScaleEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-	};
-
-	// Lambda for changing PackBeforeMerge state
-	auto CheckStateChangedImportAsReferenceRotScale= [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
-	{
-		if (!IsValidWeakPointer(MainInput))
-			return;
-
-		bool bNewState = (NewState == ECheckBoxState::Checked);
-
-		if (MainInput->GetImportAsReferenceRotScaleEnabled() == bNewState)
-			return;
-
-		// Record a transaction for undo/redo
-		FScopedTransaction Transaction(
-			TEXT(HOUDINI_MODULE_EDITOR),
-			LOCTEXT("HoudiniInputAsReferenceRotScale", "Houdini Input: Changing InputAsReference Rot/Scale"),
-			MainInput->GetOuter());
-
-		for (auto CurInput : InInputsToUpdate)
-		{
-			if (!IsValidWeakPointer(CurInput))
-				continue;
-
-			if (CurInput->GetImportAsReferenceRotScaleEnabled() == bNewState)
-				continue;
-
-			TArray<UHoudiniInputObject*> * InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
-			if (InputObjs) 
 			{
-				// Mark all its input objects as changed to trigger recook.
-				for (auto CurInputObj : *InputObjs) 
+				return IsCheckedImportAsReference(MainInput);
+			})
+			.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
 				{
-					if (!IsValid(CurInputObj))
-						continue;
+					return CheckStateChangedImportAsReference(InInputs, NewState);
+				})
+			];
+	}
 
-					if (CurInputObj->GetImportAsReferenceRotScaleEnabled() != bNewState)
+	// Add Rot/Scale checkbox
+	{
+		auto IsCheckedImportAsReferenceRotScale = [](const TWeakObjectPtr<UHoudiniInput>& InInput)
+		{
+			if (!IsValidWeakPointer(InInput))
+				return ECheckBoxState::Unchecked;
+
+			return InInput->GetImportAsReferenceRotScaleEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+		};
+
+		// Lambda for changing PackBeforeMerge state
+		auto CheckStateChangedImportAsReferenceRotScale = [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
+		{
+			if (!IsValidWeakPointer(MainInput))
+				return;
+
+			bool bNewState = (NewState == ECheckBoxState::Checked);
+
+			if (MainInput->GetImportAsReferenceRotScaleEnabled() == bNewState)
+				return;
+
+			// Record a transaction for undo/redo
+			FScopedTransaction Transaction(
+				TEXT(HOUDINI_MODULE_EDITOR),
+				LOCTEXT("HoudiniInputAsReferenceRotScale", "Houdini Input: Changing InputAsReference Rot/Scale"),
+				MainInput->GetOuter());
+
+			for (auto CurInput : InInputsToUpdate)
+			{
+				if (!IsValidWeakPointer(CurInput))
+					continue;
+
+				if (CurInput->GetImportAsReferenceRotScaleEnabled() == bNewState)
+					continue;
+
+				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				if (InputObjs)
+				{
+					// Mark all its input objects as changed to trigger recook.
+					for (auto CurInputObj : *InputObjs)
 					{
-						CurInputObj->SetImportAsReferenceRotScaleEnabled(bNewState);
-						CurInputObj->MarkChanged(true);
+						if (!IsValid(CurInputObj))
+							continue;
+
+						if (CurInputObj->GetImportAsReferenceRotScaleEnabled() != bNewState)
+						{
+							CurInputObj->SetImportAsReferenceRotScaleEnabled(bNewState);
+							CurInputObj->MarkChanged(true);
+						}
 					}
 				}
+
+				CurInput->Modify();
+				CurInput->SetImportAsReferenceRotScaleEnabled(bNewState);
 			}
+		};
 
-			CurInput->Modify();
-			CurInput->SetImportAsReferenceRotScaleEnabled(bNewState);
-		}
-	};
-
-	TSharedPtr< SCheckBox > CheckBoxImportAsReferenceRotScale;
-	VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
-	[
-		SAssignNew(CheckBoxImportAsReferenceRotScale, SCheckBox)
-		.Content()
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("ImportInputAsRefRotScaleCheckbox", "Add rot/scale to input references"))
-			.ToolTipText(LOCTEXT("ImportInputAsRefRotScaleCheckboxTip", "Add rot/scale attributes to the input references when Import input as references is enabled"))
-			.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
-		]
+		TSharedPtr< SCheckBox > CheckBoxImportAsReferenceRotScale;
+		VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
+			[
+				SAssignNew(CheckBoxImportAsReferenceRotScale, SCheckBox)
+				.Content()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("ImportInputAsRefRotScaleCheckbox", "Add rot/scale to input references"))
+				.ToolTipText(LOCTEXT("ImportInputAsRefRotScaleCheckboxTip", "Add rot/scale attributes to the input references when Import input as references is enabled"))
+				.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
+			]
 		.IsChecked_Lambda([=]()
+			{
+				return IsCheckedImportAsReferenceRotScale(MainInput);
+			})
+			.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
+				{
+					return CheckStateChangedImportAsReferenceRotScale(InInputs, NewState);
+				})
+				.IsEnabled(IsCheckedImportAsReference(MainInput))
+
+			];
+
+	}
+
+	// Add bbox checkbox
+	{
+		auto IsCheckedImportAsReferenceBbox = [](const TWeakObjectPtr<UHoudiniInput>& InInput)
 		{
-			return IsCheckedImportAsReferenceRotScale(MainInput);
-		})
-		.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
+			if (!IsValidWeakPointer(InInput))
+				return ECheckBoxState::Unchecked;
+
+			return InInput->GetImportAsReferenceBboxEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+		};
+
+		// Lambda for changing PackBeforeMerge state
+		auto CheckStateChangedImportAsReferenceBbox = [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
 		{
-			return CheckStateChangedImportAsReferenceRotScale(InInputs, NewState);
-		})
-		.IsEnabled(IsCheckedImportAsReference(MainInput))
-			
-	];
+			if (!IsValidWeakPointer(MainInput))
+				return;
+
+			bool bNewState = (NewState == ECheckBoxState::Checked);
+
+			if (MainInput->GetImportAsReferenceBboxEnabled() == bNewState)
+				return;
+
+			// Record a transaction for undo/redo
+			FScopedTransaction Transaction(
+				TEXT(HOUDINI_MODULE_EDITOR),
+				LOCTEXT("HoudiniInputAsReferenceRotScale", "Houdini Input: Changing InputAsReference Bbox"),
+				MainInput->GetOuter());
+
+			for (auto CurInput : InInputsToUpdate)
+			{
+				if (!IsValidWeakPointer(CurInput))
+					continue;
+
+				if (CurInput->GetImportAsReferenceBboxEnabled() == bNewState)
+					continue;
+
+				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				if (InputObjs)
+				{
+					// Mark all its input objects as changed to trigger recook.
+					for (auto CurInputObj : *InputObjs)
+					{
+						if (!IsValid(CurInputObj))
+							continue;
+
+						if (CurInputObj->GetImportAsReferenceBboxEnabled() != bNewState)
+						{
+							CurInputObj->SetImportAsReferenceBboxEnabled(bNewState);
+							CurInputObj->MarkChanged(true);
+						}
+					}
+				}
+
+				CurInput->Modify();
+				CurInput->SetImportAsReferenceBboxEnabled(bNewState);
+			}
+		};
+
+		TSharedPtr< SCheckBox > CheckBoxImportAsReferenceBbox;
+		VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
+			[
+				SAssignNew(CheckBoxImportAsReferenceBbox, SCheckBox)
+				.Content()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("ImportInputAsRefBboxCheckbox", "Add bounding box min/max to input references"))
+				.ToolTipText(LOCTEXT("ImportInputAsRefBboxCheckboxTip", "Add bounding box min/max attributes to the input references when Import input as references is enabled"))
+				.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
+			]
+		.IsChecked_Lambda([=]()
+			{
+				return IsCheckedImportAsReferenceBbox(MainInput);
+			})
+			.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
+				{
+					return CheckStateChangedImportAsReferenceBbox(InInputs, NewState);
+				})
+				.IsEnabled(IsCheckedImportAsReference(MainInput))
+
+			];
+	}
+
+	// Add material checkbox
+	{
+		auto IsCheckedImportAsReferenceMaterial = [](const TWeakObjectPtr<UHoudiniInput>& InInput)
+		{
+			if (!IsValidWeakPointer(InInput))
+				return ECheckBoxState::Unchecked;
+
+			return InInput->GetImportAsReferenceMaterialEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+		};
+
+		// Lambda for changing PackBeforeMerge state
+		auto CheckStateChangedImportAsReferenceMaterial = [MainInput](const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputsToUpdate, ECheckBoxState NewState)
+		{
+			if (!IsValidWeakPointer(MainInput))
+				return;
+
+			bool bNewState = (NewState == ECheckBoxState::Checked);
+
+			if (MainInput->GetImportAsReferenceMaterialEnabled() == bNewState)
+				return;
+
+			// Record a transaction for undo/redo
+			FScopedTransaction Transaction(
+				TEXT(HOUDINI_MODULE_EDITOR),
+				LOCTEXT("HoudiniInputAsReferenceRotScale", "Houdini Input: Changing InputAsReference Material"),
+				MainInput->GetOuter());
+
+			for (auto CurInput : InInputsToUpdate)
+			{
+				if (!IsValidWeakPointer(CurInput))
+					continue;
+
+				if (CurInput->GetImportAsReferenceMaterialEnabled() == bNewState)
+					continue;
+
+				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				if (InputObjs)
+				{
+					// Mark all its input objects as changed to trigger recook.
+					for (auto CurInputObj : *InputObjs)
+					{
+						if (!IsValid(CurInputObj))
+							continue;
+
+						if (CurInputObj->GetImportAsReferenceMaterialEnabled() != bNewState)
+						{
+							CurInputObj->SetImportAsReferenceMaterialEnabled(bNewState);
+							CurInputObj->MarkChanged(true);
+						}
+					}
+				}
+
+				CurInput->Modify();
+				CurInput->SetImportAsReferenceMaterialEnabled(bNewState);
+			}
+		};
+
+		TSharedPtr< SCheckBox > CheckBoxImportAsReferenceMaterial;
+		VerticalBox->AddSlot().Padding(2, 2, 5, 2).AutoHeight()
+			[
+				SAssignNew(CheckBoxImportAsReferenceMaterial, SCheckBox)
+				.Content()
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("ImportInputAsRefMaterialCheckbox", "Add material to input references"))
+			.ToolTipText(LOCTEXT("ImportInputAsRefMaterialCheckboxTip", "Add material attributes to the input references when Import input as references is enabled"))
+			.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
+			]
+		.IsChecked_Lambda([=]()
+			{
+				return IsCheckedImportAsReferenceMaterial(MainInput);
+			})
+			.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
+				{
+					return CheckStateChangedImportAsReferenceMaterial(InInputs, NewState);
+				})
+				.IsEnabled(IsCheckedImportAsReference(MainInput))
+
+			];
+	}
 }
 void
 FHoudiniInputDetails::AddExportCheckboxes(TSharedRef< SVerticalBox > VerticalBox, const TArray<TWeakObjectPtr<UHoudiniInput>>& InInputs)
@@ -3791,7 +3962,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidget(
 			PackageParams.GeoId = NextInput->GetAssetNodeId();
 			PackageParams.PackageMode = EPackageMode::Bake;
 			PackageParams.ObjectId = Index;
-			PackageParams.ObjectName = OwnerActor->GetName() + "InputHoudiniSpline" + FString::FromInt(Index);
+			PackageParams.ObjectName = OwnerActor->GetActorNameOrLabel() + "InputHoudiniSpline" + FString::FromInt(Index);
 
 			if (bBakeToBlueprint) 
 			{
@@ -4391,7 +4562,7 @@ FHoudiniInputDetails::AddLandscapeInputUI(TSharedRef<SVerticalBox> VerticalBox, 
 			[
 				SNew(STextBlock)
 				.Text(LOCTEXT("AutoSelectComponentCheckbox", "Auto-select component in asset bounds"))
-				.ToolTipText(LOCTEXT("AutoSelectComponentCheckboxTooltip", "If enabled, when no Landscape components are curremtly selected, the one within the asset's bounding box will be exported."))
+				.ToolTipText(LOCTEXT("AutoSelectComponentCheckboxTooltip", "If enabled, when no Landscape components are currently selected, the one within the asset's bounding box will be exported."))
 				.Font(FEditorStyle::GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 			]
 			.IsChecked_Lambda([MainInput]()
@@ -5090,9 +5261,9 @@ FHoudiniInputDetails::Helper_CreateHoudiniAssetPickerWidget(const TArray<TWeakOb
 			InitOptions.bShowCreateNewFolder = false;
 
 			// Add the gutter so we can change the selection's visibility
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Gutter_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Label_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::ActorInfo_Localized()));
 		}
 
 		static const FVector2D SceneOutlinerWindowSize(350.0f, 200.0f);
@@ -5249,19 +5420,22 @@ FHoudiniInputDetails::Helper_CreateLandscapePickerWidget(const TArray<TWeakObjec
 		// Populate the Landscape options from landscape actors in the world (subject to filtering).
 		UWorld* LandscapeWorld = MainInput->GetWorld();
 		TMap<FString, AActor*> LandscapeOptions;
-		for (TActorIterator<ALandscapeProxy> It(LandscapeWorld); It; ++It)
-		{ 
-			ALandscapeProxy* Actor = *It;
-			if (!OnShouldFilterActor(*It))
-			{
-				continue;
-			}
 
-			LandscapeOptions.Add(It->GetActorLabel(), Actor);
+		if (LandscapeWorld)
+		{
+			for (TActorIterator<ALandscapeProxy> It(LandscapeWorld); It; ++It)
+			{
+				ALandscapeProxy* Actor = *It;
+				if (!OnShouldFilterActor(*It))
+				{
+					continue;
+				}
+
+				LandscapeOptions.Add(It->GetActorLabel(), Actor);
+			}
 		}
 		
 		FString CurrentSelection;
-
 		if (MainInput.IsValid())
 		{
 			CurrentSelection = MainInput->GetCurrentSelectionText().ToString();
@@ -5351,9 +5525,9 @@ FHoudiniInputDetails::Helper_CreateWorldActorPickerWidget(const TArray<TWeakObje
 			InitOptions.bShowCreateNewFolder = false;
 
 			// Add the gutter so we can change the selection's visibility
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Gutter_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Label_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::ActorInfo_Localized()));
 		}
 
 		static const FVector2D SceneOutlinerWindowSize(350.0f, 200.0f);
@@ -5422,9 +5596,9 @@ FHoudiniInputDetails::Helper_CreateBoundSelectorPickerWidget(const TArray<TWeakO
 			InitOptions.bShowCreateNewFolder = false;
 
 			// Add the gutter so we can change the selection's visibility
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10));
-			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Gutter(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 0, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Gutter_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::Label(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 10, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::Label_Localized()));
+			InitOptions.ColumnMap.Add(FSceneOutlinerBuiltInColumnTypes::ActorInfo(), FSceneOutlinerColumnInfo(ESceneOutlinerColumnVisibility::Visible, 20, FCreateSceneOutlinerColumn(), true, TOptional<float>(), FSceneOutlinerBuiltInColumnTypes::ActorInfo_Localized()));
 		}
 
 		static const FVector2D SceneOutlinerWindowSize(350.0f, 200.0f);
@@ -6200,16 +6374,60 @@ FHoudiniInputDetails::Helper_OnButtonClickSelectActors(IDetailCategoryBuilder& C
 		if (!GEditor || !GEditor->GetSelectedObjects())
 			return FReply::Handled();
 
-		USelection * SelectedActors = GEditor->GetSelectedActors();
-		if (!SelectedActors)
+		USelection* SelectedActors = GEditor->GetSelectedActors();
+		USelection* SelectedComponents = GEditor->GetSelectedComponents();
+		if (!SelectedActors && !SelectedComponents)
 			return FReply::Handled();
+
+		TArray<AActor*> AllSelectedActors;
+
+		// Add all actors from the actor selection
+		for (FSelectionIterator It(*SelectedActors); It; ++It)
+		{
+			AActor* CurrentActor = Cast<AActor>(*It);
+			if (!CurrentActor)
+				continue;
+
+			AllSelectedActors.Add(CurrentActor);
+		}
+
+/*
+		// TODO: Fix! Selected instances still dont send their parent actor...
+		// ... also add all actors owning the selected components
+		// TODO: Improve - only send the selected components and not their actors?
+		for (FSelectionIterator It(*SelectedComponents); It; ++It)
+		{
+			UActorComponent* CurrentComponent = Cast<UActorComponent>(*It);
+			if (!CurrentComponent)
+				continue;
+
+			AActor* CurrentActor = CurrentComponent->GetOwner();
+			if (!CurrentActor)
+				continue;
+
+			AllSelectedActors.AddUnique(CurrentActor);
+		}
+
+		// ... also look at the selected editable components
+		for (FSelectedEditableComponentIterator It(GEditor->GetSelectedEditableComponentIterator()); It; ++It)
+		{
+			USceneComponent* SceneComponent = Cast<USceneComponent>(*It);
+			if (!SceneComponent)
+				continue;
+
+			AActor* CurrentActor = SceneComponent->GetOwner();
+			if (!CurrentActor)
+				continue;
+
+			AllSelectedActors.AddUnique(CurrentActor);
+		}
+*/
 
 		// Create a transaction
 		FScopedTransaction Transaction(
 			TEXT(HOUDINI_MODULE_RUNTIME),
 			LOCTEXT("HoudiniWorldInputSelectionChanged", "Changing Houdini world outliner input objects"),
 			MainInput->GetOuter());
-
 
 		TArray<UObject*> AllActors;
 		for (auto CurrentInput : InInputs)
@@ -6228,9 +6446,8 @@ FHoudiniInputDetails::Helper_OnButtonClickSelectActors(IDetailCategoryBuilder& C
 				
 				// Clean up the selected actors
 				TArray<AActor*> ValidBoundSelectedActors;
-				for (FSelectionIterator It(*SelectedActors); It; ++It)
+				for (auto& CurrentBoundActor : AllSelectedActors)
 				{
-					AActor* CurrentBoundActor = Cast<AActor>(*It);
 					if (!CurrentBoundActor)
 						continue;
 
@@ -6282,9 +6499,8 @@ FHoudiniInputDetails::Helper_OnButtonClickSelectActors(IDetailCategoryBuilder& C
 				//
 
 				TArray<AActor*> ValidSelectedActors;
-				for (FSelectionIterator It(*SelectedActors); It; ++It)
+				for (auto& CurrentActor : AllSelectedActors)
 				{
-					AActor* CurrentActor = Cast<AActor>(*It);
 					if (!CurrentActor)
 						continue;
 

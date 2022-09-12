@@ -39,6 +39,7 @@
 #include "HoudiniStaticMesh.h"
 #include "HoudiniOutput.h"
 #include "HoudiniEngineStyle.h"
+#include "HoudiniEngineDetails.h"
 #include "UnrealObjectInputManager.h"
 
 #include "DesktopPlatformModule.h"
@@ -243,7 +244,7 @@ FHoudiniEngineCommands::ReportBug()
 void
 FHoudiniEngineCommands::ShowInstallInfo()
 {
-	// TODO
+	FHoudiniEngineDetails::CreateInstallInfoWindow();
 }
 
 void
@@ -987,6 +988,12 @@ FHoudiniEngineCommands::OpenSessionSync()
 		HOUDINI_LOG_ERROR(TEXT("Failed to start Session Sync - Invalid session type"));
 		return;
 	}
+
+#if PLATFORM_MAC || PLATFORM_LINUX
+        // Houdini forks into the background by default on macOS and Linux
+	// so we need to explicitly tell it to not fork.
+	SessionSyncArgs += TEXT(" -foreground");
+#endif
 
 	// Add a slate notification
 	FString Notification = TEXT("Opening Houdini Session Sync...");
