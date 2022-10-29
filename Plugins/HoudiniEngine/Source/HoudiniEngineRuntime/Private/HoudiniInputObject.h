@@ -84,7 +84,8 @@ enum class EHoudiniInputObjectType : uint8
 	GeometryCollection,
 	GeometryCollectionComponent,
 	GeometryCollectionActor_Deprecated,
-	SkeletalMeshComponent
+	SkeletalMeshComponent,
+	Blueprint
 };
 
 //-----------------------------------------------------------------------------------------------------------------------------
@@ -138,7 +139,19 @@ public:
 
 	void SetImportAsReferenceRotScaleEnabled(const bool& bInImportAsRefRotScaleEnabled) { bImportAsReferenceRotScaleEnabled = bInImportAsRefRotScaleEnabled; };
 	bool GetImportAsReferenceRotScaleEnabled() const { return bImportAsReferenceRotScaleEnabled; };
+
+	void SetImportAsReferenceBboxEnabled(const bool& bInImportAsRefBboxEnabled) { bImportAsReferenceBboxEnabled = bInImportAsRefBboxEnabled; };
+	bool GetImportAsReferenceBboxEnabled() const { return bImportAsReferenceBboxEnabled; };
+
+	void SetImportAsReferenceMaterialEnabled(const bool& bInImportAsRefMaterialEnabled) { bImportAsReferenceMaterialEnabled = bInImportAsRefMaterialEnabled; }
+	bool GetImportAsReferenceMaterialEnabled() const { return bImportAsReferenceMaterialEnabled; };
 	
+	const TArray<FString>& GetMaterialReferences();
+
+	// Formats Input Reference path strings obtained by UObject::GetFullName() of format:
+	//`Material /path/to/asset` and adds single quotes: `Material'/path/to/asset'`
+	static FString FormatAssetReference(FString AssetReference);
+
 #if WITH_EDITOR
 	void SwitchUniformScaleLock() { bUniformScaleLocked = !bUniformScaleLocked; };
 	bool IsUniformScaleLocked() const { return bUniformScaleLocked; };
@@ -174,6 +187,9 @@ protected:
 	virtual bool UsesInputObjectNode() const { return true; }
 
 	virtual void BeginDestroy() override;
+
+	// If this type of input object has materials, this function updates its list of string material references.
+	void UpdateMaterialReferences();
 
 public:
 
@@ -225,6 +241,18 @@ protected:
 
 	UPROPERTY()
 	bool bImportAsReferenceRotScaleEnabled;
+
+	UPROPERTY()
+	bool bImportAsReferenceBboxEnabled;
+
+	UPROPERTY()
+	bool bImportAsReferenceMaterialEnabled;
+
+	// String References to the materials on the input object.
+	// This is used when sending input by reference to Houdini.
+	// These strings are in the form of: Material'/path/to/reference'
+	UPROPERTY()
+	TArray<FString> MaterialReferences;
 	
 	// Indicates if change the scale of Transfrom Offset of this object uniformly
 #if WITH_EDITORONLY_DATA
@@ -250,13 +278,6 @@ public:
 	//
 	static UHoudiniInputObject* Create(UObject * InObject, UObject* InOuter, const FString& InName);
 
-	// UHoudiniInputObject overrides
-	
-	// virtual void DuplicateAndCopyState(UObject* DestOuter, UHoudiniInputObject*& OutNewObject) override;
-	virtual void CopyStateFrom(UHoudiniInputObject* InInput, bool bCopyAllProperties) override;
-	virtual void SetCanDeleteHoudiniNodes(bool bInCanDeleteNodes) override;
-	virtual void InvalidateData() override;
-
 	//
 	virtual void Update(UObject * InObject) override;
 
@@ -264,16 +285,6 @@ public:
 
 	// StaticMesh accessor
 	virtual class UStaticMesh* GetStaticMesh() const;
-
-	// Blueprint accessor
-	virtual class UBlueprint* GetBlueprint() const;
-
-	// Check if this SM Input object is passed in as a BP
-	virtual bool bIsBlueprint() const;
-
-	// The Blueprint's Static Meshe Components that can be sent as inputs
-	UPROPERTY()
-	TArray<UHoudiniInputObject*> BlueprintStaticMeshes;
 };
 
 
@@ -393,10 +404,6 @@ public:
 	// Keep track of the selected Static Mesh
 	UPROPERTY()
 	TSoftObjectPtr<class UStaticMesh> StaticMesh = nullptr;
-
-	// Path to the materials assigned on the SMC
-	UPROPERTY()
-	TArray<FString> MeshComponentsMaterials;
 };
 
 
@@ -937,16 +944,78 @@ public:
 
 	// UHoudiniInputObject overrides
 	
-	// virtual void DuplicateAndCopyState(UObject* DestOuter, UHoudiniInputObject*& OutNewObject) override;
-	virtual void CopyStateFrom(UHoudiniInputObject* InInput, bool bCopyAllProperties) override;
-
 	//
 	virtual void Update(UObject * InObject) override;
 
 	// StaticMesh accessor
 	virtual class UStaticMesh* GetStaticMesh() const override;
-	
-	virtual class UBlueprint* GetBlueprint() const override { return nullptr; }
-	
-	virtual bool bIsBlueprint() const override { return false; }
 };
+
+//-----------------------------------------------------------------------------------------------------------------------------
+// Blueprint input
+//-----------------------------------------------------------------------------------------------------------------------------
+UCLASS()
+class HOUDINIENGINERUNTIME_API UHoudiniInputBlueprint : public UHoudiniInputObject
+{
+	GENERATED_UCLASS_BODY()
+
+public:
+
+	//
+	static UHoudiniInputObject* Create(UObject* InObject, UObject* InOuter, const FString& InName);
+
+	//
+	virtual void Update(UObject* InObject) override;
+
+	virtual bool HasComponentsTransformChanged() const;
+
+public:
+
+	// Return true if any content of this actor has possibly changed (for example geometry edits on a 
+	// Brush or changes on procedurally generated content).
+	// NOTE: This is more generally applicable and could be moved to the HoudiniInputObject class.
+	virtual bool HasContentChanged() const;
+
+	// UBlueprint accessor
+	UBlueprint* GetBlueprint() const;
+
+	const TArray<UHoudiniInputSceneComponent*>& GetComponents() const { return BPComponents; }
+
+	// The number of components added with the last call to Update
+	int32 GetLastUpdateNumComponentsAdded() const { return LastUpdateNumComponentsAdded; }
+	// The number of components remove with the last call to Update	
+	int32 GetLastUpdateNumComponentsRemoved() const { return LastUpdateNumComponentsRemoved; }
+
+	/**
+	 * Populate OutChangedObjects with any output objects (this object and its children if it has any) that has changed
+	 * or have invalid HAPI node ids.
+	 * Any objects that have not changed and have valid HAPI node is have their node ids added to
+	 * OutNodeIdsOfUnchangedValidObjects.
+	 *
+	 * @return true if this object, or any of its child objects, were added to OutChangedObjects.
+	 */
+	virtual bool GetChangedObjectsAndValidNodes(TArray<UHoudiniInputObject*>& OutChangedObjects, TArray<int32>& OutNodeIdsOfUnchangedValidObjects) override;
+
+	virtual void InvalidateData() override;
+
+protected:
+
+	virtual bool UsesInputObjectNode() const override { return false; }
+
+	// The BP's components that can be sent as inputs
+	UPROPERTY()
+		TArray<UHoudiniInputSceneComponent*> BPComponents;
+
+	// The USceneComponents the BP had the last time we called Update (matches the ones in BPComponents).
+	UPROPERTY()
+		TSet<TSoftObjectPtr<UObject>> BPSceneComponents;
+
+	// The number of components added with the last call to Update
+	UPROPERTY()
+		int32 LastUpdateNumComponentsAdded;
+
+	// The number of components remove with the last call to Update
+	UPROPERTY()
+		int32 LastUpdateNumComponentsRemoved;
+};
+
