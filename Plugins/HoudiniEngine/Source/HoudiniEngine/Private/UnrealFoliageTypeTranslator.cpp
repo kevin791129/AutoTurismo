@@ -86,7 +86,12 @@ bool FUnrealFoliageTypeTranslator::CreateInputNodeForReference(
 	const FTransform& InTransform,
 	const bool& bImportAsReferenceRotScaleEnabled,
 	const bool bInUseRefCountedInputSystem,
-	FUnrealObjectInputHandle& OutHandle)
+	FUnrealObjectInputHandle& OutHandle,
+	const bool& bInputNodesCanBeDeleted,
+	const bool& bImportAsReferenceBboxEnabled,
+	const FBox& InBbox,
+	const bool& bImportAsReferenceMaterialEnabled,
+	const TArray<FString>& MaterialReferences)
 {
 	if (!IsValid(InFoliageType))
 		return true;
@@ -105,7 +110,19 @@ bool FUnrealFoliageTypeTranslator::CreateInputNodeForReference(
 		return true;
 
 	const bool bSuccess = FHoudiniInputTranslator::CreateInputNodeForReference(
-		InInputNodeId, ObjectToRef, InInputNodeName, InTransform, bImportAsReferenceRotScaleEnabled, bInUseRefCountedInputSystem, OutHandle);
+		InInputNodeId,
+		ObjectToRef,
+		InInputNodeName,
+		InTransform,
+		bImportAsReferenceRotScaleEnabled,
+		bInUseRefCountedInputSystem,
+		OutHandle,
+		bInputNodesCanBeDeleted,
+		bImportAsReferenceBboxEnabled,
+		InBbox,
+		bImportAsReferenceMaterialEnabled,
+		MaterialReferences);
+
 	if (!bSuccess)
 		return false;
 

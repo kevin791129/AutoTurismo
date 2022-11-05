@@ -136,6 +136,8 @@ public:
 	bool GetPackBeforeMerge() const			{ return bPackBeforeMerge; };
 	bool GetImportAsReference() const		{ return bImportAsReference; };
 	bool GetImportAsReferenceRotScaleEnabled() const		{ return bImportAsReferenceRotScaleEnabled; };
+	bool GetImportAsReferenceBboxEnabled() const		{ return bImportAsReferenceBboxEnabled; };
+	bool GetImportAsReferenceMaterialEnabled() const		{ return bImportAsReferenceMaterialEnabled; };
 	bool GetExportLODs() const				{ return bExportLODs; };
 	bool GetExportSockets() const			{ return bExportSockets; };
 	bool GetExportColliders() const			{ return bExportColliders; };
@@ -248,6 +250,8 @@ public:
 	void SetPackBeforeMerge(const bool& bInPackBeforeMerge)			{ bPackBeforeMerge = bInPackBeforeMerge; };
 	void SetImportAsReference(const bool& bInImportAsReference)		{ bImportAsReference = bInImportAsReference; };
 	void SetImportAsReferenceRotScaleEnabled(const bool& bInImportAsReferenceRotScaleEnabled)		{ bImportAsReferenceRotScaleEnabled = bInImportAsReferenceRotScaleEnabled; };
+	void SetImportAsReferenceBboxEnabled(const bool& bInImportAsReferenceBboxEnabled)		{ bImportAsReferenceBboxEnabled = bInImportAsReferenceBboxEnabled; };
+	void SetImportAsReferenceMaterialEnabled(const bool& bInImportAsReferenceMaterialEnabled)		{ bImportAsReferenceMaterialEnabled = bInImportAsReferenceMaterialEnabled; };
 	void SetExportLODs(const bool& bInExportLODs)					{ bExportLODs = bInExportLODs; };
 	void SetExportSockets(const bool& bInExportSockets)				{ bExportSockets = bInExportSockets; };
 	void SetExportColliders(const bool& bInExportColliders)			{ bExportColliders = bInExportColliders; };
@@ -453,9 +457,17 @@ protected:
 	UPROPERTY()
 	bool bImportAsReference = false;
 
-	// Indicates that whether or not to add the rot / scale attributes for reference improts
+	// Indicates that whether or not to add the rot / scale attributes for reference imports
 	UPROPERTY()
-	bool bImportAsReferenceRotScaleEnabled = false;
+	bool bImportAsReferenceRotScaleEnabled = true;
+
+	// Indicates whether or not to add bbox attributes for reference imports
+	UPROPERTY()
+	bool bImportAsReferenceBboxEnabled = true;
+
+	// Indicates whether or not to add material attributes for reference imports
+	UPROPERTY()
+	bool bImportAsReferenceMaterialEnabled = true;
 	
 	// Indicates that all LODs in the input should be marshalled to Houdini
 	UPROPERTY()
