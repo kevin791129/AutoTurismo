@@ -30,8 +30,8 @@ void ASplineFollowingActor::BeginPlay()
 	Super::BeginPlay();
 
 	EventSubsystemAction(
-		EventSubsystem->FollowInputPressedDelegate.AddDynamic(this, &ASplineFollowingActor::StartFollowing);
-		EventSubsystem->FollowInputReleasedDelegate.AddDynamic(this, &ASplineFollowingActor::StopFollowing);
+		EventSubsystem->ThrottleInputPressedDelegate.AddDynamic(this, &ASplineFollowingActor::StartFollowing);
+		EventSubsystem->ThrottleInputReleasedDelegate.AddDynamic(this, &ASplineFollowingActor::StopFollowing);
 	)
 	
 	TArray<AActor*> FoundActors;

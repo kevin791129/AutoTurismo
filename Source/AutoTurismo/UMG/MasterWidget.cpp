@@ -2,7 +2,11 @@
 
 
 #include "MasterWidget.h"
+/* Components */
+#include "Components/TextBlock.h"
 #include "Components/Button.h"
+/* Utilities */
+#include "Kismet/KismetStringLibrary.h"
 #include "AutoTurismo/Subsystems/EventSubsystem.h"
 
 UMasterWidget* UMasterWidget::Instance = nullptr;
@@ -13,6 +17,11 @@ void UMasterWidget::NativeOnInitialized()
 
 	GasButton->OnPressed.AddDynamic(this, &UMasterWidget::OnGasButtonDown);
 	GasButton->OnReleased.AddDynamic(this, &UMasterWidget::OnGasButtonUp);
+	ResetButton->OnClicked.AddDynamic(this, &UMasterWidget::OnResetButtonClicked);
+
+	EventSubsystemAction(
+		EventSubsystem->TimerUpdateDelegate.AddDynamic(this, &UMasterWidget::OnTimerUpdated);
+	)
 }
 
 void UMasterWidget::NativeConstruct()
@@ -25,18 +34,33 @@ void UMasterWidget::NativeDestruct()
 	Instance = nullptr;
 }
 
+#pragma region Delegate Binding
 void UMasterWidget::OnGasButtonDown()
 {
 	EventSubsystemAction(
-		if (EventSubsystem->FollowInputPressedDelegate.IsBound())
-			EventSubsystem->FollowInputPressedDelegate.Broadcast();
+		if (EventSubsystem->ThrottleInputPressedDelegate.IsBound())
+			EventSubsystem->ThrottleInputPressedDelegate.Broadcast();
 	)
 }
 
 void UMasterWidget::OnGasButtonUp()
 {
 	EventSubsystemAction(
-		if (EventSubsystem->FollowInputReleasedDelegate.IsBound())
-			EventSubsystem->FollowInputReleasedDelegate.Broadcast();
+		if (EventSubsystem->ThrottleInputReleasedDelegate.IsBound())
+			EventSubsystem->ThrottleInputReleasedDelegate.Broadcast();
 	)
 }
+
+void UMasterWidget::OnResetButtonClicked()
+{
+	EventSubsystemAction(
+		if (EventSubsystem->ResetVehicleDelegate.IsBound())
+			EventSubsystem->ResetVehicleDelegate.Broadcast();
+	)
+}
+
+void UMasterWidget::OnTimerUpdated(float Timer)
+{
+	TimerText->SetText(FText::FromString(UKismetStringLibrary::TimeSecondsToString(Timer)));
+}
+#pragma endregion

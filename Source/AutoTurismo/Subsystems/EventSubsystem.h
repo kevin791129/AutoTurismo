@@ -16,13 +16,18 @@ class AUTOTURISMO_API UEventSubsystem : public UWorldSubsystem
 {
 	GENERATED_BODY()
 
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFollowInputPressed);
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFollowInputReleased);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSimpleEvent);
+
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FTimerUpdateEvent, float, Timer);
 
 public:
-	UPROPERTY(BlueprintAssignable, meta = (DisplayName = "On Simulate Follow Pressed"))
-		FFollowInputPressed FollowInputPressedDelegate;
-	UPROPERTY(BlueprintAssignable, meta = (DisplayName = "On Simulate Follow Released"))
-		FFollowInputReleased FollowInputReleasedDelegate;
-	
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Simulate Throttle Pressed"))
+		FSimpleEvent ThrottleInputPressedDelegate;
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Simulate Throttle Released"))
+		FSimpleEvent ThrottleInputReleasedDelegate;
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Vehicle Reset Triggered"))
+		FSimpleEvent ResetVehicleDelegate;
+
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Timer Updated"))
+		FTimerUpdateEvent TimerUpdateDelegate;
 };
