@@ -16,7 +16,7 @@
 #include "AutoTurismo/AutoTurismo.h"
 
 // Sets default values
-ACarPawn::ACarPawn() : bThrottle(false), SplineInputKey(0.0f), SplineEndInputKey(0.0f), bFinished(false), Timer(0.0f), FrameCount(0)
+ACarPawn::ACarPawn() : bThrottle(false), SplineInputKey(0.0f), SplineEndInputKey(0.0f), bFinished(true), Timer(0.0f), FrameCount(0), bShadowMode(false)
 {
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
@@ -147,10 +147,12 @@ void ACarPawn::Restart()
 {
 	if (bFinished)
 	{
+		ThrottleInputSave.Empty(18000);
 		SplineInputKey = 0.0f;
 		bFinished = false;
 		Timer = 0.0f;
 		FrameCount = 0;
+		bShadowMode = false;
 		EventSubsystemAction(
 			if (EventSubsystem->TimerUpdateDelegate.IsBound())
 				EventSubsystem->TimerUpdateDelegate.Broadcast(Timer);
@@ -160,9 +162,39 @@ void ACarPawn::Restart()
 	ResetCar();
 }
 
+void ACarPawn::StartShadowReplay()
+{
+	if (!bFinished || ThrottleInputSave.Num() <= 0)
+	{
+		UE_LOG(LogAutoTurismo, Warning, TEXT("Attempting to replay shadow at invalid time."))
+		return;
+	}
+
+	SplineInputKey = 0.0f;
+	bFinished = false;
+	Timer = 0.0f;
+	FrameCount = 0;
+	bShadowMode = true;
+	EventSubsystemAction(
+		if (EventSubsystem->TimerUpdateDelegate.IsBound())
+			EventSubsystem->TimerUpdateDelegate.Broadcast(Timer);
+	)
+	ResetCar();
+}
+
 void ACarPawn::UpdateCarMovement_Implementation()
 {
-	if (bThrottle)
+	if (!bShadowMode)
+	{
+		ThrottleInputSave.Add(bThrottle);
+	}
+	else if (FrameCount >= ThrottleInputSave.Num())
+	{
+		UE_LOG(LogAutoTurismo, Warning, TEXT("Replaying shadow throttle input out of bounds"))
+		return;
+	}
+
+	if (!bShadowMode ? bThrottle : ThrottleInputSave[FrameCount])
 	{
 		GetVehicleMovement()->SetThrottleInput(1.0f);
 		GetVehicleMovement()->SetBrakeInput(0.0f);
@@ -174,6 +206,7 @@ void ACarPawn::UpdateCarMovement_Implementation()
 	}
 	const FVector SplineDirection = FollowSpline->GetDirectionAtSplineInputKey(SplineInputKey, ESplineCoordinateSpace::World).GetSafeNormal();
 	const FVector ForwardDirection = GetActorForwardVector().GetSafeNormal();
+	// Cheat to know whether we need to turn right/left
 	const float AngleSign = FVector::CrossProduct(ForwardDirection, SplineDirection).Z >= 0.0f ? 1.0f : -1.0f;
 	const float Angle = FMath::Acos(FVector::DotProduct(SplineDirection, ForwardDirection)) * AngleSign;
 	SteeringInput = FMath::RadiansToDegrees(Angle);

@@ -56,9 +56,17 @@ public:
 	UFUNCTION(BlueprintCallable)
 		void Restart();
 
+	/**
+	 * Replay recorded race as shadow car.
+	 */
+	UFUNCTION(BlueprintCallable)
+		void StartShadowReplay();
+
 protected:
 	/**
 	 * Update car trottle, brake and steering; can be override in blueprint.
+	 * 
+	 * TODO : Heavily dependent on frame rate as it is currently being called in Tick.
 	 */
 	UFUNCTION(BlueprintNativeEvent)
 		void UpdateCarMovement();
@@ -107,12 +115,20 @@ protected:
 	/* Time elapsed since the start */
 	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		float Timer;
+
 	/* Frames elapsed since the start */
 	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		int FrameCount;
+	/* Throttle input save data */
+	TBitArray<> ThrottleInputSave;
+	/* Replay recorded race as shadow car */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = State)
+		bool bShadowMode;
 
+	/* Steering input for debug display only */
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug")
 		float SteeringInput;
+	/* Multiplier to smooth steering */
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "State|Debug")
 		float SteeringScale = 1.0f;
 };
