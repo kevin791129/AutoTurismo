@@ -43,10 +43,18 @@ public:
 		void SetupFollowSpline(USplineComponent* SplineComponent);
 
 	/**
-	 * Reset the vehicle.
+	 * Reset trottle and brake input, physics and position.
+	 * 
+	 * @param bPosition : Whether to reset the position of the vehicle or not.
 	 */
 	UFUNCTION(BlueprintCallable)
-		void Reset();
+		void ResetCar(bool bPosition = true);
+
+	/**
+	 * Reset the vehicle and timer.
+	 */
+	UFUNCTION(BlueprintCallable)
+		void Restart();
 
 protected:
 	/**

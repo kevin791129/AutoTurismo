@@ -35,7 +35,7 @@ void ACarPawn::BeginPlay()
 	EventSubsystemAction(
 		EventSubsystem->ThrottleInputPressedDelegate.AddDynamic(this, &ACarPawn::OnThrottlePressed);
 		EventSubsystem->ThrottleInputReleasedDelegate.AddDynamic(this, &ACarPawn::OnThrottleReleased);
-		EventSubsystem->ResetVehicleDelegate.AddDynamic(this, &ACarPawn::Reset);
+		EventSubsystem->ResetVehicleDelegate.AddDynamic(this, &ACarPawn::Restart);
 	)
 
 	if (UUserWidget* MasterWidget = CreateWidget(GetWorld(), MasterWidgetClass))
@@ -71,10 +71,7 @@ void ACarPawn::Tick(float DeltaTime)
 	if (SplineInputKey >= SplineEndInputKey)
 	{
 		bFinished = true;
-		GetVehicleMovement()->SetThrottleInput(0.0f);
-		GetVehicleMovement()->SetBrakeInput(0.0f);
-		GetMesh()->SetAllPhysicsLinearVelocity(FVector::ZeroVector);
-		GetMesh()->SetAllPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+		ResetCar(false);
 		return;
 	}
 
@@ -117,15 +114,36 @@ void ACarPawn::SetupFollowSpline_Implementation(USplineComponent* SplineComponen
 		FollowSpline = SplineComponent;
 		const int32 NumPoints = SplineComponent->GetNumberOfSplinePoints();
 		SplineEndInputKey = (float)(NumPoints - 1);
-		Reset();
+		Restart();
 	}
 	else
 	{
-		UE_LOG(LogAutoTurismo, Warning, TEXT("Initialize with invalid spline."))
+		UE_LOG(LogAutoTurismo, Error, TEXT("Initialize with invalid spline."))
 	}
 }
 
-void ACarPawn::Reset()
+void ACarPawn::ResetCar(bool bPosition)
+{
+	GetVehicleMovement()->SetThrottleInput(0.0f);
+	GetVehicleMovement()->SetBrakeInput(0.0f);
+	GetMesh()->SetAllPhysicsLinearVelocity(FVector::ZeroVector);
+	GetMesh()->SetAllPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+
+	if (bPosition)
+	{
+		// TODO: Tiggered once on car spawn before spline component is set. 
+		//       This should not be the case and needs investigation.
+		if (!FollowSpline)
+		{
+			UE_LOG(LogAutoTurismo, Warning, TEXT("Spline component is null"))
+			return;
+		}
+		const FTransform SplineTransform = FollowSpline->GetTransformAtSplineInputKey(SplineInputKey, ESplineCoordinateSpace::World);
+		SetActorTransform(SplineTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+}
+
+void ACarPawn::Restart()
 {
 	if (bFinished)
 	{
@@ -139,8 +157,7 @@ void ACarPawn::Reset()
 		)
 	}
 	
-	const FTransform SplineTransform = FollowSpline->GetTransformAtSplineInputKey(SplineInputKey, ESplineCoordinateSpace::World);
-	SetActorTransform(SplineTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	ResetCar();
 }
 
 void ACarPawn::UpdateCarMovement_Implementation()

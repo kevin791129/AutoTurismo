@@ -31,7 +31,8 @@ void UMasterWidget::NativeConstruct()
 
 void UMasterWidget::NativeDestruct()
 {
-	Instance = nullptr;
+	if (Instance == this)
+		Instance = nullptr;
 }
 
 #pragma region Delegate Binding
