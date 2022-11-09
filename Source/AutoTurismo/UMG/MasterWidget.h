@@ -49,25 +49,56 @@ protected:
 	 */
 	UFUNCTION()
 		void OnResetButtonClicked();
+
+	/**
+	 * Delegate binding on timer is reset.
+	 */
+	UFUNCTION()
+		void OnTimerReset();
 	/**
 	 * Delegate binding on timer is updated.
 	 * 
-	 * @param Timer : Updated timer time.
+	 * @param Time : Updated timer time.
 	 */
 	UFUNCTION()
-		void OnTimerUpdated(float Timer);
+		void OnTimerUpdated(float Time);
+	/**
+	 * Delegate binding on time split.
+	 *
+	 * @param Time : Split time.
+	 */
+	UFUNCTION()
+		void OnTimeSplit(float Time);
+	/**
+	 * Delegate binding on lap finished.
+	 *
+	 * @param Time : Lap time.
+	 */
+	UFUNCTION()
+		void OnLapFinished(float Time);
 #pragma endregion
 
 protected:
 	/* Timer text block*/
 	UPROPERTY(meta = (BindWidget))
 		UTextBlock* TimerText;
+	/* Split timer text block*/
+	UPROPERTY(meta = (BindWidget))
+		UTextBlock* SplitTimerText;
+	/* Best lap time text block*/
+	UPROPERTY(meta = (BindWidget))
+		UTextBlock* BestLapTimeText;
 	/* Gas button*/
 	UPROPERTY(meta = (BindWidget))
 		UButton* GasButton;
 	/* Reset button*/
 	UPROPERTY(meta = (BindWidget))
 		UButton* ResetButton;
+
+	/* Previous split time*/
+	float PreviousSplitTime;
+	/* Best Lap time*/
+	float BestLapTime;
 
 private:
 	/* Singleton instance*/

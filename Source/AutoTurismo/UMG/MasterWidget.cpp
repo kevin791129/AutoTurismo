@@ -9,6 +9,8 @@
 #include "Kismet/KismetStringLibrary.h"
 #include "AutoTurismo/Subsystems/EventSubsystem.h"
 
+#define TIME_TO_TEXT(t) FText::FromString(UKismetStringLibrary::TimeSecondsToString(t))
+
 UMasterWidget* UMasterWidget::Instance = nullptr;
 
 void UMasterWidget::NativeOnInitialized()
@@ -20,7 +22,10 @@ void UMasterWidget::NativeOnInitialized()
 	ResetButton->OnClicked.AddDynamic(this, &UMasterWidget::OnResetButtonClicked);
 
 	EventSubsystemAction(
+		EventSubsystem->TimerResetDelegate.AddDynamic(this, &UMasterWidget::OnTimerReset);
 		EventSubsystem->TimerUpdateDelegate.AddDynamic(this, &UMasterWidget::OnTimerUpdated);
+		EventSubsystem->TimeSplitDelegate.AddDynamic(this, &UMasterWidget::OnTimeSplit);
+		EventSubsystem->LapFinishDelegate.AddDynamic(this, &UMasterWidget::OnLapFinished);
 	)
 }
 
@@ -60,8 +65,32 @@ void UMasterWidget::OnResetButtonClicked()
 	)
 }
 
-void UMasterWidget::OnTimerUpdated(float Timer)
+void UMasterWidget::OnTimerReset()
 {
-	TimerText->SetText(FText::FromString(UKismetStringLibrary::TimeSecondsToString(Timer)));
+	PreviousSplitTime = 0.0f;
+	BestLapTime = BIG_NUMBER;
+	TimerText->SetText(TIME_TO_TEXT(0.0f));
+	SplitTimerText->SetText(TIME_TO_TEXT(0.0f));
+	BestLapTimeText->SetText(FText::FromString("--:--.--"));
+}
+
+void UMasterWidget::OnTimerUpdated(float Time)
+{
+	TimerText->SetText(TIME_TO_TEXT(Time));
+	SplitTimerText->SetText(TIME_TO_TEXT(Time - PreviousSplitTime));
+}
+
+void UMasterWidget::OnTimeSplit(float Time)
+{
+	PreviousSplitTime = Time;
+}
+
+void UMasterWidget::OnLapFinished(float Time)
+{
+	if (Time < BestLapTime)
+	{
+		BestLapTime = Time;
+		BestLapTimeText->SetText(TIME_TO_TEXT(BestLapTime));
+	}
 }
 #pragma endregion

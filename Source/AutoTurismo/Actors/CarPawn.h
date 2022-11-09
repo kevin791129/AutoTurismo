@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "WheeledVehiclePawn.h"
+#include "AutoTurismo/Structs/TimeSplit.h"
+#include "AutoTurismo/Structs/DriveSettings.h"
 #include "CarPawn.generated.h"
 
 class USpringArmComponent;
@@ -38,9 +40,12 @@ public:
 	 * Initialize spline for vehicle to follow.
 	 * 
 	 * @param SplineComponent : Spline to follow.
+	 * @param Splits : Spline points to create time splits.
+	 * @param bLoopingTrack : True if the track is a closed loop, false otherwise.
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintNativeEvent)
-		void SetupFollowSpline(USplineComponent* SplineComponent);
+		void SetupFollowSpline(USplineComponent* SplineComponent, const TArray<int>& Splits, bool bLoopingTrack = true);
+	virtual void SetupFollowSpline_Implementation(USplineComponent* SplineComponent, const TArray<int>& Splits, bool bLoopingTrack);
 
 	/**
 	 * Reset trottle and brake input, physics and position.
@@ -54,7 +59,7 @@ public:
 	 * Reset the vehicle and timer.
 	 */
 	UFUNCTION(BlueprintCallable)
-		void Restart();
+		void RestartRace(int NumLaps = 1);
 
 	/**
 	 * Replay recorded race as shadow car.
@@ -62,14 +67,28 @@ public:
 	UFUNCTION(BlueprintCallable)
 		void StartShadowReplay();
 
+	/**
+	 * Set drive settings.
+	 * 
+	 * @param InSettings : New drive settings.
+	 */
+	UFUNCTION(BlueprintCallable)
+		void SetDriveSettings(const FDriveSettings& InSettings);
+
 protected:
+	/**
+	 * Update spline key and time splits.
+	 *
+	 * @return : True if race is completed, false otherwise.
+	 */
+	bool UpdateSplineKey();
+
 	/**
 	 * Update car trottle, brake and steering; can be override in blueprint.
 	 * 
 	 * TODO : Heavily dependent on frame rate as it is currently being called in Tick.
 	 */
-	UFUNCTION(BlueprintNativeEvent)
-		void UpdateCarMovement();
+	void UpdateCarMovement();
 
 #pragma region Delegate Binding
 	/**
@@ -82,6 +101,12 @@ protected:
 	 */
 	UFUNCTION()
 		void OnThrottleReleased();
+
+	/**
+	 * Delegate binding on vehicle is reset.
+	 */
+	UFUNCTION()
+		void OnVehicleReset();
 #pragma endregion
 
 protected:
@@ -97,38 +122,85 @@ protected:
 		TSubclassOf<UMasterWidget> MasterWidgetClass;
 
 	/* Spline for the vehicle to follow */
-	UPROPERTY(BlueprintReadWrite, Transient, Category = Movement)
+	UPROPERTY(BlueprintReadWrite, Transient, Category = Track)
 		USplineComponent* FollowSpline;
+	/* Whether spline is a loop */
+	UPROPERTY(BlueprintReadWrite, Transient, Category = Track)
+		bool bClosedLoop;
+
+	/* Drive settings */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "Drive Settings", meta = (ShowOnlyInnerProperties))
+		FDriveSettings DriveSettings;
+
 	/* Whether throttle is pressed */
-	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = Movement)
+	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		bool bThrottle;
 	/* Input key along the followed spline */
-	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = Movement)
+	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		float SplineInputKey;
 	/* Input key at the end of the spline */
 	UPROPERTY(BlueprintReadWrite, Transient, Category = Movement)
 		float SplineEndInputKey;
-
-	/* Whether vehicle has reached the end of the spline */
+	/* Whether race is finished or laps completed equals total laps */
 	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		bool bFinished;
 	/* Time elapsed since the start */
 	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
 		float Timer;
+	/* Number of laps completed */
+	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
+		int LapsCompleted;
+	/* Total number of laps that needs to be completed to finish the race */
+	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
+		int TotalLaps;
+
+	/* Spline points where timer splits */
+	UPROPERTY(BlueprintReadWrite, Transient, Category = "State|Time Split")
+		TArray<int> TimeSplitPoints;
+	/* Next spline point for timer split */
+	UPROPERTY(BlueprintReadWrite, Transient, Category = "State|Time Split")
+		int NextSplitIndex;
+	/* Race time splits */
+	UPROPERTY(BlueprintReadWrite, Transient, Category = "State|Time Split")
+		FRaceSplit TimeSplits;
 
 	/* Frames elapsed since the start */
-	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, Transient, Category = State)
+	UPROPERTY(BlueprintReadWrite, VisibleAnywhere, AdvancedDisplay, Transient, Category = State)
 		int FrameCount;
 	/* Throttle input save data */
 	TBitArray<> ThrottleInputSave;
 	/* Replay recorded race as shadow car */
-	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = State)
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, AdvancedDisplay, Transient, Category = State)
 		bool bShadowMode;
 
-	/* Steering input for debug display only */
-	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug")
-		float SteeringInput;
-	/* Multiplier to smooth steering */
-	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "State|Debug")
-		float SteeringScale = 1.0f;
+private:
+#if WITH_EDITORONLY_DATA
+	/* Steering input visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Steering Input"))
+		float DebugSteeringInput;
+	/* Forward direction visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Forward Direction"))
+		FVector DebugForwardDir;
+	/* Spline direction visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Spline Direction"))
+		FVector DebugSplineDir;
+	/* Forward angle visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Forward Angle"))
+		float DebugForwardAngle;
+	/* Position distance squared visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Position Distance Squared"))
+		float DebugPositionDistSquared;
+	/* Position direction visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Position Direction"))
+		FVector DebugPositionDir;
+	/* Position scale visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Position Scale"))
+		float DebugPositionScale;
+	/* Position angle visible only for debug only */
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Transient, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Position Angle"))
+		float DebugPositionAngle;
+	/* Whether to draw spline key points only for debug only */
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "State|Debug", meta = (AllowPrivateAccess = true, DisplayName = "Draw Key Points"))
+		bool bDebugDraw = false;
+#endif
 };

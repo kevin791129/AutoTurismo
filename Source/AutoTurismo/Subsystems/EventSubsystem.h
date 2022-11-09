@@ -28,6 +28,12 @@ public:
 	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Vehicle Reset Triggered"))
 		FSimpleEvent ResetVehicleDelegate;
 
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Timer Reset"))
+		FSimpleEvent TimerResetDelegate;
 	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Timer Updated"))
 		FTimerUpdateEvent TimerUpdateDelegate;
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Time Split"))
+		FTimerUpdateEvent TimeSplitDelegate;
+	UPROPERTY(BlueprintCallable, BlueprintAssignable, meta = (DisplayName = "On Lap Finished"))
+		FTimerUpdateEvent LapFinishDelegate;
 };
