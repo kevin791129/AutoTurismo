@@ -49,7 +49,7 @@
 #include "LandscapeStreamingProxy.h"
 #include "LandscapeInfo.h"
 #include "LandscapeEdit.h"
-#include "AssetRegistryModule.h"
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "PackageTools.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "UObject/UnrealType.h"
@@ -1102,7 +1102,7 @@ FHoudiniLandscapeTranslator::OutputLandscape_GenerateTile(
 		if (IsValid(FoundLandscapeProxy))
 		{
 			TileActor = FoundLandscapeProxy;
-			if (TileActor->GetName() != LandscapeTileActorName)
+			if (TileActor->GetActorNameOrLabel() != LandscapeTileActorName)
 			{
 				// Ensure the TileActor is named correctly
 				FHoudiniEngineUtils::SafeRenameActor(TileActor, LandscapeTileActorName);
@@ -2054,18 +2054,19 @@ FHoudiniLandscapeTranslator::OutputLandscape_ModifyLayer(
 			{
 				if (!ExistingLayers.Contains(InLayerInfo.LayerName))
 					continue;
-				
-				int32 LayerIndex = ExistingLayers.FindChecked(InLayerInfo.LayerName);
-				if (TargetLandscape->EditorLayerSettings.IsValidIndex(LayerIndex))
+
+				for (auto& CurEditLayer : TargetLandscape->EditorLayerSettings)
 				{
-					FLandscapeEditorLayerSettings& CurLayer = TargetLandscape->EditorLayerSettings[LayerIndex];
-					// Draw on the current layer, if it is valid.
-					if (CurLayer.LayerInfoObj)
-					{
-						HOUDINI_LANDSCAPE_MESSAGE(TEXT("[OutputLandscape_EditableLayer] Drawing using Alpha accessor. Dest Region: %f, %f, -> %f, %f"), TileMin.X, TileMin.Y, TileMax.X, TileMax.Y);
-						FAlphamapAccessor<false, true> AlphaAccessor(TargetLandscapeInfo, CurLayer.LayerInfoObj);
-						AlphaAccessor.SetData(TileMin.X, TileMin.Y, TileMax.X, TileMax.Y, InLayerInfo.LayerData.GetData(), ELandscapeLayerPaintingRestriction::None);
-					}
+					if (!IsValid(CurEditLayer.LayerInfoObj))
+						continue;
+
+					// Checking the layer by name, we cant reuse the index from ExistingLayers as it won't match EditorLayerSettings
+					if (CurEditLayer.LayerInfoObj->LayerName != InLayerInfo.LayerName)
+						continue;
+
+					HOUDINI_LANDSCAPE_MESSAGE(TEXT("[OutputLandscape_EditableLayer] Drawing using Alpha accessor. Dest Region: %f, %f, -> %f, %f"), TileMin.X, TileMin.Y, TileMax.X, TileMax.Y);
+					FAlphamapAccessor<false, true> AlphaAccessor(TargetLandscapeInfo, CurEditLayer.LayerInfoObj);
+					AlphaAccessor.SetData(TileMin.X, TileMin.Y, TileMax.X, TileMax.Y, InLayerInfo.LayerData.GetData(), ELandscapeLayerPaintingRestriction::None);
 				}
 			}
 		}
@@ -2422,7 +2423,7 @@ FHoudiniLandscapeTranslator::FindExistingLandscapeActor_Bake(
 		// {
 		// 	// The OutLevel is not present in the current world which means we might
 		// 	// still find the tile actor in OutWorld.
-			OutActor = FHoudiniEngineUtils::FindActorInWorld<ALandscapeProxy>(OutWorld, FName(InActorName));
+			OutActor = FHoudiniEngineUtils::FindActorInWorldByLabelOrName<ALandscapeProxy>(OutWorld, InActorName);
 		// }
 	}
 
@@ -2475,7 +2476,7 @@ ALandscapeProxy* FHoudiniLandscapeTranslator::FindTargetLandscapeProxy(const FSt
 		return LandscapeInputs[InputIndex];
 	}
 
-	return FHoudiniEngineUtils::FindActorInWorldByLabel<ALandscapeProxy>(World, ActorName);
+	return FHoudiniEngineUtils::FindActorInWorldByLabelOrName<ALandscapeProxy>(World, ActorName);
 }
 
 bool FHoudiniLandscapeTranslator::GetEditLayersFromOutput(UHoudiniOutput* InOutput, TArray<FString>& InEditLayers)
@@ -2585,7 +2586,7 @@ FHoudiniLandscapeTranslator::FindExistingLandscapeActor_Temp(
 		if (ValidLandscapes.Contains(OutActor))
 			continue;
 
-		if (OutActor->GetName() != ActorName)
+		if (OutActor->GetActorNameOrLabel() != ActorName)
 			// This is not the droid we're looking for
 			continue;
 
@@ -4664,10 +4665,19 @@ FHoudiniLandscapeTranslator::DestroyLandscape(ALandscape* Landscape)
 	ULandscapeInfo* Info = Landscape->GetLandscapeInfo();
 	if (!IsValid(Info))
 		return;
-
+#if ENGINE_MINOR_VERSION< 1
 	TArray<ALandscapeStreamingProxy*> Proxies = Info->Proxies;
-	for(ALandscapeStreamingProxy* Proxy : Proxies)
+	for (ALandscapeStreamingProxy* Proxy : Proxies)
 	{
+#else
+	TArray<TWeakObjectPtr<ALandscapeStreamingProxy>> Proxies = Info->StreamingProxies;
+	for (auto ProxyPtr : Proxies)
+	{
+		ALandscapeStreamingProxy* Proxy = ProxyPtr.Get();
+#endif	
+		if (!IsValid(Proxy))
+			continue;
+
 		Info->UnregisterActor(Proxy);
 		Proxy->Destroy();
 	}
